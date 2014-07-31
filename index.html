@@ -1,0 +1,268 @@
+<html>
+<head>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/angular.js/1.2.1/angular.min.js"></script>
+    <!-- <script src="//cdn.firebase.com/v0/firebase.js"></script> -->
+    <script src="https://cdn.firebase.com/js/client/1.0.18/firebase.js"></script>
+    <!-- <script src="//cdn.firebase.com/libs/angularfire/0.5.0/angularfire.min.js"></script> -->
+    <script src="https://cdn.firebase.com/libs/angularfire/0.8.0/angularfire.min.js"></script>
+    <script src="https://cdn.firebase.com/js/simple-login/1.6.2/firebase-simple-login.js"></script>
+    
+    <script src="//code.jquery.com/jquery-1.11.0.min.js"></script>
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
+    <script src="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
+    <script src="fbpath.js"></script>
+</head>
+
+<body ng-app="notesync">
+    <div class="well" ng-controller="notesCtrl">
+    <div class="row">
+        <div class="col-xs-6">
+            <div ng-repeat="list in lists" >
+                <p ng-click="getList(list.list_id)">{{list.name}} {{list.list_id}}</p>
+                <button type="submit" ng-click="delList(list.list_id)">X</button>
+            </div>
+            <button type="button" ng-click="getList('-JT5ZSRdBELAHxDyrgo')">Get illegal list</button>
+            <button type="submit" ng-click="getLists()">get lists</button>
+        </div>
+        <div class="col-xs-6">
+            List name: <input type="text" ng-model="list.name">
+            <div ng-repeat="note in list.notes" >
+                <input type="checkbox" ng-model="note.done">{{note.name}}</p>
+            </div>
+            New note: <input type="text" ng-model="newNote.name">
+            <button type="submit" ng-click="addNote()">Add</button>    
+        </div>
+    </div>
+
+        <form ng-submit="addList(newListName)">
+            <input ng-model="newListName" />
+            <button type="submit">add list</button>
+        </form>
+
+        Email: <input type="text" ng-model="email">
+        Password: <input type="text" ng-model="password">
+        <button type="submit" ng-click="login()">login</button>
+        <button type="submit" ng-click="logout()">logout</button>
+        <button type="submit" ng-click="createUser()">create user</button>
+        Logged in: {{uid}}
+    </div>
+    <script type="text/javascript">
+    
+    /*
+    trying to structure data as here:
+    https://www.firebase.com/docs/web/guide/structuring-data.html
+    and apply rules where the user has only permissions to the list he created. this is working or .read
+    
+    but to implement .write would require 2 rules. One under lists to check the user is has a uid and that the new list is valid
+    also a .write where the new list/users/<uid> matches current uid
+    
+    the next chalenge would be to add other users to lists so they can be shared.
+    */
+
+    angular.module('notesync', ['firebase']).controller('notesCtrl', ['$scope', '$firebase', '$firebaseSimpleLogin', function($scope, $firebase, $firebaseSimpleLogin) {
+
+        $scope.email = 'cx@q.com';
+        $scope.password = 'qwerty';
+        $scope.user = {};
+        $scope.lists = {}; //lists from user lists (this is how wer retreive a single list)(when using security rules you need to specify the thing you have access for. If if one fails you'll get nothing)
+        $scope.list = {}; //focused/selected list retrieved from root lists
+        $scope.newNote = {};
+        $scope.notes = {};
+
+        var ref = new Firebase(fbpath+'/lists');
+        var sync = $firebase(ref);
+        var auth = $firebaseSimpleLogin(ref);
+
+        //display uid for testing
+        $scope.uid = '';
+
+        $scope.unbindlist = function(){
+            //intentionally empty - gets created after a bindTo promise is returned (lsits and list)
+        }
+
+        $scope.login = function(){
+            auth.$login('password', {
+              email: $scope.email,
+              password: $scope.password
+            })
+            .then(function(user){
+                //fetch lists
+                if(auth.user != null){
+                    $scope.uid = auth.user.uid;
+                    //get the user details (contains lists that are allowed, so we know which ones to fetch)
+                    var userRef = new Firebase(fbpath+'/users/'+user.uid);
+                    var User = $firebase(userRef);
+                    $scope.user = User.$asArray();
+
+                    $scope.getLists();
+                }else{
+                    console.log('auth failed');
+                }
+            });
+        }
+
+        $scope.logout = function(){
+            auth.$logout();
+            $scope.uid = auth.user.uid;
+        }
+
+        $scope.getLists = function(){
+            if(auth.user != null){
+                var listsRef = new Firebase(fbpath+'/users/'+auth.user.uid+'/lists');
+                //$scope.lists = $firebase(listsRef).$asArray();
+                Lists = $firebase(listsRef).$asObject();
+                    Lists.$bindTo($scope, 'lists').then(function(){
+                })
+
+            }else{
+                console.log('no auth');
+            }
+        }
+
+        $scope.getList = function(list_id){
+            console.log('getting list '+list_id);
+            console.log($scope.list);
+            $scope.unbindlist(); //unbind a previously bouund list, if we don't do this any changes to the newly bound list will apply to all previously bound lists. Normally causing heaps of unwanted deletions!!
+            var listRef = new Firebase(fbpath+'/lists/'+list_id);
+            var List = $firebase(listRef).$asObject();
+            List.$bindTo($scope, 'list').then(function(unbind){
+                console.log($scope.list);
+                $scope.unbindlist = unbind;
+                $scope.$watch('list', function(){                    
+                    //update the name in lists
+                    //because lists is bound to firebase it will update the listname on other clients
+                    $scope.lists[$scope.list.$id].name = $scope.list.name;
+                    
+                })  
+            })
+
+        }
+
+        $scope.delList = function(list_id){
+            //first remove the actual List
+            console.log('getting list to delete '+list_id);
+            var listRef = new Firebase(fbpath+'/lists/'+list_id);
+            var List = $firebase(listRef);
+            console.log($scope.lists);
+            List.$remove().then(function(){
+
+               delete $scope.lists[list_id];
+            });
+
+        }        
+
+        $scope.addNote = function(){
+            console.log($scope.list);
+            if(auth.user != null){
+                var notesRef = new Firebase(fbpath+'/lists/'+$scope.list.$id+'/notes');
+                var Notes = $firebase(notesRef);
+                $scope.newNote.done = false;
+                Notes.$push($scope.newNote)
+            }else{
+                console.log('not logged in');
+            }
+        }
+
+        $scope.createUser = function(){
+           
+            auth.$createUser($scope.email, $scope.password)
+                .then(function(user){
+                    console.log(user);
+                    //create list first (so we can add the new list name under the user)
+                    //probably better practice to create user first
+                    var listRef = new Firebase(fbpath+'/lists');
+                    var list = $firebase(listRef).$asArray();
+
+                    list.$add({
+                    //$scope.lists.$add({
+                                    name:'my first list',
+                                    /*notes: {
+                                        name: 'firstNote',
+                                        done: false
+                                    }*/
+                    }).then(function(ref){
+
+                        var newList = {};
+                        newList[ref.name()] = {
+                            name: 'my first list'
+                        }
+
+                        //create user
+                        var createUserRef = new Firebase(fbpath+'/users/'+user.uid);
+                        createUserRef.set({
+                            email: $scope.email,
+                            //lists: newList
+                        })
+
+                        //create users first list
+                        var newUserListRef = new Firebase(fbpath+'/users/'+user.uid+'/lists');
+                        var newUserList = $firebase(newUserListRef).$asArray();
+                        newUserList.$add({
+                            list_id: ref.name(),
+                            name: 'my first list'
+                        })
+
+                    });
+                   
+                    $scope.getLists();
+                    
+                }, function(error){
+                    console.log(error);
+                });  
+        }
+        
+        $scope.addList = function(newListName){
+
+            if(auth.user != null){
+                var listRef = new Firebase(fbpath+'/lists');
+                var list = $firebase(listRef).$asArray();
+
+                //is an array with uid as the key
+                //its placed in users under list for the security rules to compare against
+                //I need to set uid to key as this is how rules are noraml used.
+                //I couldn't find a working security rule when using uid as a value, you can see my attempts in rules1.json
+                var newUsers = {};
+                newUsers[auth.user.uid] = auth.user.uid;
+
+                list.$add({
+                     name: newListName,
+                     users: newUsers
+                }).then(function(ref){
+                    //update the user.lists with the newly create list id
+                    newList_id = ref.name();
+
+                    $scope.lists[newList_id] = {
+                                name: newListName,
+                                list_id: newList_id,
+                                users: newUsers
+                    };
+                    console.log($scope.lists);
+                    
+                    $scope.unbindlist();
+                    //update list.users with user id
+                    var listsUsersRef = new Firebase(fbpath+'/lists/'+newList_id);
+                    //var listsUsers = $firebase(listsUsersRef).$asArray();
+                    var listsUsers = $firebase(listsUsersRef).$asObject();
+                    listsUsers.$bindTo($scope, 'list').then(function(unbind){
+                        console.log($scope.list);
+                        $scope.list.users[auth.user.uid] = {name:auth.user.uid}
+                        $scope.unbindlist = unbind();
+                    })
+                });
+            }else{
+                console.log('not logged in');
+            }
+
+        }
+
+        //login on page load
+        //this should be in a angular run
+        $scope.login();
+
+    }]);
+
+
+    </script>
+
+</body>
+</html>

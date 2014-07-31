@@ -1,0 +1,35 @@
+{
+    "rules": {
+
+        ".write": true,
+        "notesync" :{
+            //".read": true,
+            ".write": true,
+          "lists":{
+            //".read": "data.child('$list').child('users').child('$user').val() == auth.uid",
+            //".read": "root.child('lists').child('$list').child('users').child('$user').child('useruid').val() == auth.uid",
+
+            "$list":{
+              //".read": true,
+              ".read": "data.child('users/'+auth.uid).exists()", //this works!
+              //".read": "data.child('users').child('$user').val() == auth.uid",
+              //".read": "auth.uid == 'simplelogin:9'",
+              "users":{
+                //".read": "data.child('$user.useruid').val() == auth.uid",
+                "$user":{
+                  //".read": "root.child('lists').child('$list').child('users').child('$user').child('useruid').val() == auth.uid"
+                  //".read": true //is not going to provide read access above, only provides access here and lower
+                }
+              }
+              
+            }
+          },
+          "users": {
+            "$user": {
+              ".read": "$user == auth.uid",
+              ".write": true
+            }
+          }
+        }
+      }
+}
